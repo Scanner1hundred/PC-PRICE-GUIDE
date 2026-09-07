@@ -45,6 +45,8 @@ You don't have scraping permission or API access from most SA retailers yet, bec
 
 Evetech already has a public affiliate program — it's the first legitimate, sanctioned data source. Everyone else starts as a rate-limited scrape target.
 
+**Before writing a spider for any store:** check `/docs/site-structures.md` first. It records how each retailer's data is actually structured (found via manual discovery — see Section 9.1) so that work never has to be repeated.
+
 **Scraping etiquette (non-negotiable, baked into every scraper):**
 - Respect `robots.txt`
 - Rate-limit requests
@@ -126,8 +128,8 @@ You are the data controller; MongoDB Atlas is a data processor — it doesn't ha
 Following SE principle: get the critical path working end-to-end before polishing anything. Frontend is *not* the critical path — data flowing into `price_history` is.
 
 **Now (pre–Black Friday critical path):**
-1. MongoDB Atlas cluster + `products`/`price_history` schema live
-2. First Scrapy spider scraping into `price_history` on a schedule via Zyte
+1. ~~MongoDB Atlas cluster + `products`/`price_history` schema live~~ ✅ Done 2026-09-07
+2. ~~First Scrapy spider scraping into `price_history` on a schedule via Zyte~~ ⚠️ Partially done 2026-09-07 — spider runs manually and successfully (Evetech GPUs, 20/20 products), but not yet scheduled via Zyte. Manual `scrapy crawl` only so far.
 3. Evetech affiliate feed ingested as second data source
 4. Click-tracker redirect endpoint (`/out?store=X&product_id=Y`) logging clicks
 
@@ -155,6 +157,7 @@ Following SE principle: get the critical path working end-to-end before polishin
 |---|---|---|---|
 | (Phase 0) | Initial scoping | Full stack chosen: Scrapy/Zyte, MongoDB Atlas, FastAPI, Azure App Service, React, SimpleAnalytics, .tech domain | Original brainchild conversation — see archived transcript |
 | 2026-09-03 | Master doc creation | Consolidated Phase 0 stack with new additions: prompt log, POPIA section, standardized display schema, learning-log framing | This conversation — reconciling drift between an earlier (incorrect) Postgres/BeautifulSoup assumption and the actual decided stack |
+| 2026-09-07 | First working scraper + first real price_history data | Built `price_guide_scraper` (Scrapy project, MongoDB pipeline, Evetech GPU spider). Fixed venv/dotenv setup, diagnosed Atlas connection timeout as school-wifi port 27017 blocking, discovered Evetech embeds full product data as JSON-LD structured data (built for Google SEO) rather than requiring fragile CSS scraping. Confirmed 20/20 products + price_history rows inserted successfully. Rotated an accidentally-exposed DB password. | Session started as "get the background scraping infrastructure running before Black Friday." See `/docs/site-structures.md` for the JSON-LD discovery details, kept separately so future stores/categories can reuse the approach. |
 
 ---
 
@@ -168,6 +171,42 @@ Practices being deliberately followed:
 - **Separation of concerns** — data collection, storage, API, and UI are distinct layers that can be worked on independently
 - **Documentation as a first-class deliverable**, not an afterthought — this file itself
 - No dedicated tester/feedback loop exists yet (hardware-enthusiast niche, no user base) — noted as an open risk, not solved yet. Worth revisiting once there's *any* real traffic.
+
+### 9.1 Why we inspect before we scrape
+
+A scraper has no eyes. It doesn't see a webpage the way a person does — no
+visual grid of product cards, no colours, no obvious "this is the price"
+label. All it gets is one long string of raw text: HTML tags and
+sometimes JSON, with nothing marking where one product ends and the next
+begins. There's no way to know in advance how a given retailer has
+arranged that text — every site does it differently, and it changes
+without notice.
+
+So before a single line of a spider gets written, we have to feel our way
+through that raw text by hand — a few lines at a time in `scrapy shell`,
+poking at it: "does this piece of text exist? does this tag repeat once
+per product? is the real data actually hidden somewhere less obvious,
+like a block of JSON stuffed into a `<script>` tag for search engines to
+read?" That poking-around process isn't wasted time or a sign of not
+knowing what we're doing going in — it *is* the work. There's no shortcut
+to it, because the layout is unknown until we look.
+
+What we're hoping to find each time is a **repeatable shape**: some
+structure that shows up consistently for every product, that we can point
+code at reliably. Sometimes that shape is obvious HTML. Often, as with
+Evetech, it turns out retailers already publish a clean, structured
+version of their product data for Google's benefit (JSON-LD) — and reading
+that is far more reliable than guessing at CSS class names a designer
+might casually rename tomorrow.
+
+Because this discovery work is expensive to redo and easy to lose, the
+findings for each retailer get written down in `/docs/site-structures.md`
+rather than staying in one person's memory (or one AI conversation).
+Before writing a spider for any new store or category, check that file
+first — the discovery may already be done. If it isn't, that file also
+lists the order of things worth checking (JSON-LD first, then other
+embedded data blobs, CSS selectors only as a last resort), so the search
+itself doesn't have to be reinvented either.
 
 ---
 
